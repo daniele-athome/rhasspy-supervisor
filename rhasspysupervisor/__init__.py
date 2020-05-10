@@ -1458,6 +1458,63 @@ def get_speech_to_text(
 
         return stt_command
 
+    if stt_system == "google":
+        # Google Cloud
+        credentials_file = profile.get("speech_to_text.google.credentials")
+        if not credentials_file:
+            _LOGGER.error("speech_to_text.google.credentials is required")
+            return []
+
+        language_code = profile.get("speech_to_text.google.language_code")
+        if not language_code:
+            _LOGGER.error("speech_to_text.google.language_code is required")
+            return []
+
+        stt_command = [
+            "rhasspy-asr-google-hermes",
+            "--credentials",
+            shlex.quote(str(write_path(profile, credentials_file))),
+            "--language-code",
+            shlex.quote(str(language_code)),
+        ]
+
+        add_standard_args(
+            profile,
+            stt_command,
+            site_ids,
+            mqtt_host,
+            mqtt_port,
+            mqtt_username,
+            mqtt_password,
+        )
+
+        # Silence detection
+        skip_sec = str(profile.get("google.webrtcvad.skip_sec", ""))
+        if skip_sec:
+            stt_command.extend(["--voice-skip-seconds", skip_sec])
+
+        min_sec = str(profile.get("google.webrtcvad.min_sec", ""))
+        if min_sec:
+            stt_command.extend(["--voice-min-seconds", min_sec])
+
+        speech_sec = str(profile.get("google.webrtcvad.speech_sec", ""))
+        if speech_sec:
+            stt_command.extend(["--voice-speech-seconds", speech_sec])
+
+        silence_sec = str(profile.get("google.webrtcvad.silence_sec", ""))
+        if silence_sec:
+            stt_command.extend(["--voice-silence-seconds", silence_sec])
+
+        before_sec = str(profile.get("google.webrtcvad.before_sec", ""))
+        if before_sec:
+            stt_command.extend(["--voice-before-seconds", before_sec])
+
+        vad_mode = str(profile.get("google.webrtcvad.vad_mode", ""))
+        if vad_mode:
+            stt_command.extend(["--voice-sensitivity", vad_mode])
+
+        return stt_command
+
     raise ValueError(f"Unsupported speech to text system (got {stt_system})")
 
 
