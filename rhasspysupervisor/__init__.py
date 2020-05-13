@@ -2034,6 +2034,11 @@ def get_dialogue(
         if session_timeout:
             dialogue_command.extend(["--session-timeout", session_timeout])
 
+        # Minimum NLU confidence
+        min_confidence = str(profile.get("dialogue.min_confidence", ""))
+        if min_confidence:
+            dialogue_command.extend(["--min-confidence", min_confidence])
+
         # Add sounds (skip if no audio output system and no satellites)
         satellite_site_ids = profile.get("dialogue.satellite_site_ids")
         sound_system = profile.get("sounds.system", "dummy")
