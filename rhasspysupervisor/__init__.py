@@ -16,7 +16,12 @@ _LOGGER = logging.getLogger("rhasspysupervisor")
 # -----------------------------------------------------------------------------
 
 
-def profile_to_conf(profile: Profile, out_file: typing.TextIO, local_mqtt_port=12183):
+def profile_to_conf(
+    profile: Profile,
+    out_file: typing.TextIO,
+    local_mqtt_port=12183,
+    mosquitto_path="mosquitto",
+):
     """Generate supervisord conf from Rhasspy profile"""
 
     # Header
@@ -28,7 +33,11 @@ def profile_to_conf(profile: Profile, out_file: typing.TextIO, local_mqtt_port=1
     master_site_ids = str(profile.get("mqtt.site_id", "default")).split(",")
 
     mqtt_host = str(profile.get("mqtt.host", "localhost"))
-    mqtt_port = int(profile.get("mqtt.port", 1883))
+
+    try:
+        mqtt_port = int(profile.get("mqtt.port", 1883))
+    except ValueError:
+        mqtt_port = 1883
 
     mqtt_username = str(profile.get("mqtt.username", "")).strip()
     mqtt_password = str(profile.get("mqtt.password", "")).strip()
@@ -40,7 +49,7 @@ def profile_to_conf(profile: Profile, out_file: typing.TextIO, local_mqtt_port=1
         mqtt_port = local_mqtt_port
         mqtt_username = ""
         mqtt_password = ""
-        print_mqtt(out_file, mqtt_port=local_mqtt_port)
+        print_mqtt(out_file, mqtt_port=local_mqtt_port, mosquitto_path=mosquitto_path)
 
     # -------------------------------------------------------------------------
 
@@ -226,9 +235,9 @@ def write_boilerplate(out_file: typing.TextIO):
 # -----------------------------------------------------------------------------
 
 
-def print_mqtt(out_file: typing.TextIO, mqtt_port: int):
+def print_mqtt(out_file: typing.TextIO, mqtt_port: int, mosquitto_path="mosquitto"):
     """Print command for internal MQTT broker"""
-    mqtt_command = ["mosquitto", "-p", str(mqtt_port)]
+    mqtt_command = [mosquitto_path, "-p", str(mqtt_port)]
 
     if mqtt_command:
         print("[program:mqtt]", file=out_file)
@@ -416,6 +425,10 @@ def get_microphone(
         udp_audio_port = profile.get("microphone.pyaudio.udp_audio_port", "")
         if udp_audio_port:
             mic_command.extend(["--udp-audio-port", str(udp_audio_port)])
+
+        frames_per_buffer = profile.get("microphone.pyaudio.frames_per_buffer")
+        if frames_per_buffer is not None:
+            mic_command.extend(["--frames-per-buffer", str(frames_per_buffer)])
 
         return mic_command
 
@@ -2056,6 +2069,17 @@ def get_dialogue(
             for site_id in master_site_ids:
                 dialogue_command.extend(["--no-sound", site_id])
 
+        volume = str(profile.get("dialogue.volume", ""))
+        if volume:
+            # Volume scalar from 0-1
+            dialogue_command.extend(["--volume", volume])
+
+        group_separator = str(profile.get("dialogue.group_separator", ""))
+        if group_separator:
+            # String separating groups from names in site ids.
+            # Used to avoid multiple wake ups from satellites that are co-located.
+            dialogue_command.extend(["--group-separator", group_separator])
+
         return dialogue_command
 
     raise ValueError(f"Unsupported dialogue system (got {dialogue_system})")
@@ -2127,6 +2151,11 @@ def get_text_to_speech(
             shlex.quote(str(voice)),
         ]
 
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.espeak.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
+
         add_standard_args(
             profile,
             tts_command,
@@ -2158,6 +2187,11 @@ def get_text_to_speech(
             shlex.quote(voice),
         ]
 
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.flite.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
+
         add_standard_args(
             profile,
             tts_command,
@@ -2179,6 +2213,11 @@ def get_text_to_speech(
             shlex.quote(" ".join(str(v) for v in picotts_command)),
             "--temporary-wav",
         ]
+
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.picotts.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
 
         add_standard_args(
             profile,
@@ -2212,6 +2251,11 @@ def get_text_to_speech(
             "--temporary-wav",
             "--text-on-stdin",
         ]
+
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.nanotts.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
 
         add_standard_args(
             profile,
@@ -2308,6 +2352,11 @@ def get_text_to_speech(
             shlex.quote(locale),
         ]
 
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.marytts.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
+
         add_standard_args(
             profile,
             tts_command,
@@ -2348,6 +2397,11 @@ def get_text_to_speech(
             "--sample-rate",
             shlex.quote(sample_rate),
         ]
+
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.wavenet.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
 
         add_standard_args(
             profile,
@@ -2406,6 +2460,11 @@ def get_text_to_speech(
             shlex.quote(" ".join(str(v) for v in voices_command)),
         ]
 
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.opentts.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
+
         add_standard_args(
             profile,
             tts_command,
@@ -2433,10 +2492,17 @@ def get_text_to_speech(
             default_voice = next(iter(voices.keys()))
             _LOGGER.warning("No default voice set. Using %s", default_voice)
 
+        cache_dir = profile.get("text_to_speech.larynx.cache_dir")
+        if not cache_dir:
+            _LOGGER.error("text_to_speech.larynx.cache_dir is required")
+            return []
+
         tts_command = [
             "rhasspy-tts-larynx-hermes",
             "--default-voice",
             shlex.quote(str(default_voice)),
+            "--cache-dir",
+            shlex.quote(str(write_path(profile, cache_dir))),
         ]
 
         for voice, voice_settings in voices.items():
@@ -2486,6 +2552,11 @@ def get_text_to_speech(
                     ]
                 )
 
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.larynx.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
+
         add_standard_args(
             profile,
             tts_command,
@@ -2523,6 +2594,11 @@ def get_text_to_speech(
             mqtt_username,
             mqtt_password,
         )
+
+        # Add volume scalar (0-1)
+        volume = str(profile.get("text_to_speech.command.volume", ""))
+        if volume:
+            tts_command.extend(["--volume", volume])
 
         voices_program = profile.get("text_to_speech.command.voices_program")
         if voices_program:
@@ -2621,6 +2697,10 @@ def get_speakers(
             "--list-command",
             shlex.quote(" ".join(list_command)),
         ]
+
+        volume = str(profile.get("sounds.aplay.volume", ""))
+        if volume:
+            output_command.extend(["--volume", volume])
 
         add_standard_args(
             profile,
